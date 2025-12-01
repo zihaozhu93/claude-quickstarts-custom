@@ -32,27 +32,24 @@ SYSTEM_INSTRUCTION = """
 You are an expert Autonomous AI Software Engineer.
 Your goal is to complete the project specified in `app_spec.txt` by implementing features in `feature_list.json`.
 
-**CORE PHILOSOPHY (DEEP-DEV PROTOCOL):**
-1.  **Architect, Not Just Coder**: You are a Senior Architect with amnesia. You must rigorously plan before coding.
-2.  **Context First**: `TECH_STACK.md` is your Constitution. `planning_journal.md` is your Memory. `feature_list.json` is your Roadmap.
-3.  **One Feature at a Time**: Focus on completing one feature perfectly before moving to the next.
-4.  **Verify Then Commit**: Never mark a feature as passing until you have verified it.
-5.  **Adversarial Review**: You must attack your own code before finalizing it.
+**CORE PHILOSOPHY (README-DRIVEN DEVELOPMENT):**
+1.  **README is God**: `README.md` is your Master Plan and Single Source of Truth. If it conflicts with `feature_list.json` or other files, OBEY `README.md`.
+2.  **Architect, Not Just Coder**: You are a Senior Architect. Rigorously plan before coding.
+3.  **Context First**: `TECH_STACK.md` is your Constitution. `planning_journal.md` is your Memory.
+4.  **One Feature at a Time**: Focus on completing one feature perfectly before moving to the next.
+5.  **Verify Then Commit**: Never mark a feature as passing until you have verified it.
 
 **YOUR WORKFLOW (MANDATORY):**
-1.  **Analyze**: Read the `Project Context`, `planning_journal.md`, `TECH_STACK.md`, and `feature_list.json`.
+1.  **Analyze**: 
+    *   **FIRST**: Read `README.md` to understand the Project Vision and Structure.
+    *   **SECOND**: Check `planning_journal.md` and `feature_list.json`.
 2.  **Plan (The Architect's Protocol)**:
-    *   **Context Check**: Explicitly state your understanding of the task and check for conflicts with `TECH_STACK.md`.
-    *   **Pseudo-Plan**: Write a pseudo-code plan or file modification list in `planning_journal.md`.
-    *   **Defense**: Identify potential bugs, security risks, and edge cases *before* writing code.
+    *   **Context Check**: Explicitly state: "According to the Master Plan in README.md..."
+    *   **Pseudo-Plan**: Write a pseudo-code plan in `planning_journal.md`.
+    *   **Defense**: Identify risks.
 3.  **Implement**: Write the code.
-    *   **Type-First**: Define interfaces/schemas first.
-    *   **Small Steps**: Implement core logic, then helpers.
-4.  **Adversarial Review (Self-Correction)**:
-    *   Review your own code as a "Black Hat" hacker.
-    *   Check for memory leaks, N+1 queries, and security holes.
-    *   Fix issues immediately.
-5.  **Verify**: Run tests/server to validate.
+4.  **Adversarial Review**: Attack your own code.
+5.  **Verify**: Run tests.
 6.  **Update Status**: Update `feature_list.json` and `planning_journal.md`.
 7.  **Commit**: Commit changes.
 
@@ -115,6 +112,18 @@ class GeminiRunner:
         # Initialize Rate Limiter
         self.rate_limiter = RateLimiter(project_dir, max_rpd, max_tpm)
         
+        # Initialize Git Manager
+        self.git_manager = GitManager(project_dir)
+        
+        # Initialize Readme Parser (Active RDD)
+        self.readme_parser = ReadmeParser(project_dir)
+        
+        # Startup Verification (Safety Net)
+        self._startup_verification()
+        
+        # Auto-Import Tasks from README (Active RDD)
+        self._auto_import_readme_tasks()
+        
         self._setup_auth()
         
         # Create list of callable tools for automatic execution
@@ -123,6 +132,7 @@ class GeminiRunner:
             self.tool_manager.execute_bash,
             self.tool_manager.read_file,
             self.tool_manager.write_file,
+            self.tool_manager.replace_in_file,
             self.tool_manager.list_directory,
             self.tool_manager.search_codebase
         ]
@@ -133,6 +143,95 @@ class GeminiRunner:
             system_instruction=SYSTEM_INSTRUCTION
         )
         self.chat = self.model.start_chat(enable_automatic_function_calling=True)
+
+    def _startup_verification(self):
+        """
+        Check last commit and offer rollback if needed.
+        """
+        last_msg = self.git_manager.get_last_commit_msg()
+        if last_msg and last_msg.startswith("[GAE]"):
+            print(f"\n[Git Safety Net] Last session ended with commit: '{last_msg}'")
+            print("Do you want to KEEP these changes? [Y/n] (Auto-keep in 10s)")
+            choice = self._input_with_timeout("> ", timeout=10)
+            
+            if choice and choice.lower() == 'n':
+                print("Rolling back changes...")
+                if self.git_manager.rollback():
+                    print("Rollback complete. Exiting to ensure clean state.")
+                    sys.exit(0)
+            else:
+                print("Keeping changes.")
+
+    def _auto_import_readme_tasks(self):
+        """
+        Check README.md for new tasks and offer to import them.
+        """
+        if self.mode != "autonomous":
+            return
+
+        tasks = self.readme_parser.extract_tasks()
+        if not tasks:
+            return
+
+        # Load existing feature_list.json to avoid duplicates
+        feature_list_path = self.project_dir / "feature_list.json"
+        existing_names = set()
+        if feature_list_path.exists():
+            import json
+            try:
+                existing_features = json.loads(feature_list_path.read_text())
+                existing_names = {f['name'] for f in existing_features}
+            except:
+                pass
+
+        new_tasks = [t for t in tasks if t['name'] not in existing_names]
+        
+        if new_tasks:
+            print(f"\n[Active RDD] Found {len(new_tasks)} new tasks in README.md:")
+            for i, task in enumerate(new_tasks):
+                print(f"  {i+1}. {task['name']}")
+            
+            print("Import these tasks to execution queue? [Y/n] (Auto-yes in 10s)")
+            choice = self._input_with_timeout("> ", timeout=10)
+            
+            if not choice or choice.lower() == 'y':
+                print("Importing tasks...")
+                # Append to feature_list.json
+                if feature_list_path.exists():
+                    current_list = json.loads(feature_list_path.read_text())
+                    current_list.extend(new_tasks)
+                    feature_list_path.write_text(json.dumps(current_list, indent=2))
+                else:
+                    feature_list_path.write_text(json.dumps(new_tasks, indent=2))
+                print("Tasks imported successfully.")
+            else:
+                print("Skipping import.")
+
+    def _sync_readme_status(self):
+        """
+        Sync completed tasks from feature_list.json back to README.md.
+        """
+        feature_list_path = self.project_dir / "feature_list.json"
+        if not feature_list_path.exists():
+            return
+
+        try:
+            import json
+            features = json.loads(feature_list_path.read_text())
+            
+            # Find passing features
+            passing_features = [f['name'] for f in features if f.get('passes', False)]
+            
+            synced_count = 0
+            for task_name in passing_features:
+                if self.readme_parser.mark_task_complete(task_name):
+                    synced_count += 1
+            
+            if synced_count > 0:
+                print(f"\n[Active RDD] Synced {synced_count} completed tasks to README.md")
+                
+        except Exception as e:
+            print(f"[Active RDD] Sync failed: {e}")
 
     def _setup_auth(self):
         """
@@ -175,10 +274,11 @@ class GeminiRunner:
         
         # 1. File Tree
         context.append("## Directory Structure")
-        context.append("```")
+        context_parts.append("## Directory Structure")
+        context_parts.append("```")
         # Use ToolManager's list_directory to respect security and ignores
-        context.append(self.tool_manager.list_directory("."))
-        context.append("```\n")
+        context_parts.append(self.tool_manager.list_directory("."))
+        context_parts.append("```\n")
         
         # 2. Key Files Content
         # We automatically include specific high-value files if they exist
@@ -392,7 +492,23 @@ class GeminiRunner:
                 # Check for termination condition
                 if "TASK_COMPLETE" in response.text:
                     print("\nAll tasks completed successfully!")
+                    self.git_manager.commit("Task Completed (TASK_COMPLETE)")
+                    
+                    # Two-Way Sync (Active RDD)
+                    # Try to infer which task was completed. 
+                    # For now, we rely on the agent to strictly follow "One Feature at a Time".
+                    # We can also parse the response for "Completed: [Task Name]" if we enforce that format.
+                    # But a simpler heuristic: If feature_list.json has a passing task that matches README, check it.
+                    # Actually, let's just scan feature_list.json for passing tasks and sync them.
+                    self._sync_readme_status()
+                    
                     break
+                
+                # Auto-commit on successful turn
+                if iteration % 5 == 0:
+                    self.git_manager.commit(f"Checkpoint Iteration {iteration}")
+                    # Also sync status periodically
+                    self._sync_readme_status()
                     
             except Exception as e:
                 print(f"Fatal Error in loop: {e}")
@@ -448,6 +564,21 @@ class GeminiRunner:
         # 3. Tests
         # 4. Others
         
+        context_parts = []
+        
+        # 1. Inject README.md as Master Plan (RDD)
+        readme_path = self.project_dir / "README.md"
+        if readme_path.exists():
+            readme_content = readme_path.read_text(encoding='utf-8')
+            context_parts.append(f"=== PROJECT MASTER PLAN (README.md) ===\n{readme_content}\n")
+            print("Loaded Master Plan from README.md")
+        
+        # 2. Add TECH_STACK.md if exists
+        tech_stack_path = self.project_dir / "TECH_STACK.md"
+        if tech_stack_path.exists():
+            context_parts.append(f"=== TECH STACK ===\n{tech_stack_path.read_text(encoding='utf-8')}\n")
+            
+        # 3. Add planning_journal.md (The Agent's Memory)
         # Extract keywords from planning_journal.md
         keywords = set()
         journal_path = self.project_dir / "planning_journal.md"

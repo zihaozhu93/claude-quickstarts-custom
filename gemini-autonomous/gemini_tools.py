@@ -90,29 +90,41 @@ class ToolManager:
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-    def read_file(self, path: str) -> str:
+    def read_file(self, path: str, start_line: int = 1, end_line: int = -1) -> str:
         """
-        Read content of a file.
-        
-        Args:
-            path: Relative path to file
-            
-        Returns:
-            File content or error message
+        Read the content of a file. 
+        Optional: start_line and end_line (1-based) to read a specific range.
         """
-        if not self._is_safe_path(path):
-            return "Error: Access denied (path outside project directory)"
-            
-        target_path = self.project_dir / path
-        
-        if not target_path.exists():
-            return f"Error: File not found: {path}"
-            
-        if not target_path.is_file():
-            return f"Error: Not a file: {path}"
-            
         try:
-            return target_path.read_text(encoding='utf-8')
+            file_path = self._validate_path(path)
+            if not file_path.exists():
+                return f"Error: File {path} does not exist."
+            if not file_path.is_file():
+                return f"Error: Not a file: {path}"
+            
+            content = file_path.read_text(encoding='utf-8')
+            lines = content.splitlines()
+            
+            # Handle line ranges
+            if start_line > 1 or end_line != -1:
+                total_lines = len(lines)
+                start_idx = max(0, start_line - 1)
+                end_idx = total_lines if end_line == -1 else min(total_lines, end_line)
+                
+                if start_idx >= total_lines and start_line > 1: # Only error if start_line is beyond content and not default
+                    return f"Error: Start line {start_line} exceeds file length ({total_lines})."
+                
+                selected_lines = lines[start_idx:end_idx]
+                # Add line numbers for context
+                numbered_lines = []
+                for i, line in enumerate(selected_lines):
+                    numbered_lines.append(f"{start_idx + i + 1}: {line}")
+                
+                return "\n".join(numbered_lines)
+            
+            return content
+        except ValueError as e:
+            return f"Error: {str(e)}"
         except Exception as e:
             return f"Error reading file: {str(e)}"
 
@@ -138,6 +150,36 @@ class ToolManager:
             return f"Successfully wrote to {path}"
         except Exception as e:
             return f"Error writing file: {str(e)}"
+
+    def replace_in_file(self, path: str, old_block: str, new_block: str) -> str:
+        """
+        Replace a specific block of text in a file.
+        Safety: Fails if old_block is not found or is not unique.
+        """
+        try:
+            file_path = self._validate_path(path)
+            if not file_path.exists():
+                return f"Error: File {path} does not exist."
+            
+            content = file_path.read_text(encoding='utf-8')
+            
+            # Check for uniqueness
+            count = content.count(old_block)
+            if count == 0:
+                return "Error: 'old_block' not found in file. Please verify the exact content."
+            if count > 1:
+                return f"Error: 'old_block' found {count} times. Replacement must be unique. Provide more context."
+            
+            # Perform replacement
+            new_content = content.replace(old_block, new_block)
+            file_path.write_text(new_content, encoding='utf-8')
+            
+            return f"Successfully replaced content in {path}"
+            
+        except ValueError as e:
+            return f"Error: {str(e)}"
+        except Exception as e:
+            return f"Error replacing content: {str(e)}"
 
     def list_directory(self, path: str = ".") -> str:
         """
@@ -230,13 +272,21 @@ class ToolManager:
                     },
                     {
                         "name": "read_file",
-                        "description": "Read the content of a file.",
+                        "description": "Read the content of a file. Supports line ranges for large files.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
                                 "path": {
                                     "type": "STRING",
                                     "description": "Relative path to the file"
+                                },
+                                "start_line": {
+                                    "type": "INTEGER",
+                                    "description": "Start line number (1-based, optional)"
+                                },
+                                "end_line": {
+                                    "type": "INTEGER",
+                                    "description": "End line number (1-based, optional, -1 for end)"
                                 }
                             },
                             "required": ["path"]
@@ -244,7 +294,7 @@ class ToolManager:
                     },
                     {
                         "name": "write_file",
-                        "description": "Write content to a file. Creates directories if needed.",
+                        "description": "Write content to a file. OVERWRITES ENTIRE FILE. Use replace_in_file for small edits.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -258,6 +308,28 @@ class ToolManager:
                                 }
                             },
                             "required": ["path", "content"]
+                        }
+                    },
+                    {
+                        "name": "replace_in_file",
+                        "description": "Replace a specific block of text in a file. Safer than write_file for small edits.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "path": {
+                                    "type": "STRING",
+                                    "description": "Relative path to the file"
+                                },
+                                "old_block": {
+                                    "type": "STRING",
+                                    "description": "The exact text block to replace (must be unique)"
+                                },
+                                "new_block": {
+                                    "type": "STRING",
+                                    "description": "The new text block"
+                                }
+                            },
+                            "required": ["path", "old_block", "new_block"]
                         }
                     },
                     {
