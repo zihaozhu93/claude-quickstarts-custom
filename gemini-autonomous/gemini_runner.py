@@ -19,6 +19,8 @@ from google.auth.transport.requests import Request
 
 from gemini_tools import ToolManager
 from rate_limiter import RateLimiter
+from git_manager import GitManager
+from readme_parser import ReadmeParser
 
 # Configuration
 # Default to Gemini 3.0 Pro Preview as requested.
@@ -274,11 +276,10 @@ class GeminiRunner:
         
         # 1. File Tree
         context.append("## Directory Structure")
-        context_parts.append("## Directory Structure")
-        context_parts.append("```")
+        context.append("```")
         # Use ToolManager's list_directory to respect security and ignores
-        context_parts.append(self.tool_manager.list_directory("."))
-        context_parts.append("```\n")
+        context.append(self.tool_manager.list_directory("."))
+        context.append("```\n")
         
         # 2. Key Files Content
         # We automatically include specific high-value files if they exist
@@ -618,6 +619,9 @@ class GeminiRunner:
         file_list.sort(key=lambda x: (get_priority(x[0]), x[0]))
         
         # 3. Build Context within Budget
+        # Merge RDD parts first so they are at the top (after header)
+        context.extend(context_parts)
+        
         file_count = 0
         
         for file_path, size in file_list:
